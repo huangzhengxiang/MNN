@@ -18,6 +18,8 @@
 #include "llm/llm.hpp"
 #include "tokenizer.hpp"
 #include "llmconfig.hpp"
+#include "evaluation/evaluation.hpp"
+
 // 0: no debug, 1: test op time, 2: print tensor info
 #define DEBUG_MODE 0
 
@@ -273,7 +275,7 @@ std::string Llm::apply_chat_template(const std::vector<PromptItem>& chat_prompts
     return prompt_result;
 }
 
-void Llm::chat() {
+void Llm::chat(std::ostream* log) {
     std::vector<PromptItem> history;
     history.push_back(std::make_pair("system", "You are a helpful assistant."));
     while (true) {
@@ -281,23 +283,33 @@ void Llm::chat() {
         std::string user_str;
         std::getline(std::cin, user_str);
         if (user_str == "/exit") {
+            print_speed(log);
+            history.clear();
+            reset();
             break;
         }
         if (user_str == "/reset") {
-            history.resize(1);
+            history.clear();
+            history.push_back(std::make_pair("system", "You are a helpful assistant."));
+            reset();
             std::cout << "\nA: reset done." << std::endl;
             continue;
         }
         std::cout << "\nA: " << std::flush;
         history.emplace_back(std::make_pair("user", user_str));
         auto assistant_str = response(history);
-        history.emplace_back(std::make_pair("assistant", assistant_str));
+        if (!config_->reuse_kv())
+            history.back().second += assistant_str + "<|im_end|>\n";
+        else
+            history.back().second = "<|im_end|>\n";
         std::cout << std::endl;
     }
 }
 
 void Llm::reset() {
+    clearPerformance(&time_perf_);
     history_ids_.clear();
+    gen_seq_len_ = 0;
     all_seq_len_ = 0;
 }
 
@@ -348,6 +360,10 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_new_to
 }
 
 std::string Llm::generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with) {
+    TimePerformance* perf = &time_perf_;
+    PrefillTimePerformance prefill_time;
+    prefill_time.prefill_prev_token_ = history_ids_.size();
+    prefill_time.prefill_token_ = input_ids.size();
     prompt_len_ = static_cast<int>(input_ids.size());
     history_ids_.insert(history_ids_.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
     auto st = std::chrono::system_clock::now();
@@ -361,10 +377,14 @@ std::string Llm::generate(const std::vector<int>& input_ids, std::ostream* os, c
     modules_ = decode_modules_;
     std::string output_str = decode(token);
     prefill_us_ = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
+    prefill_time.prefill_us_ = prefill_us_;
+    perf->prefill_record_.push_back(prefill_time);
     *os << output_str << std::flush;
     while (gen_seq_len_ < config_->max_new_tokens()) {
+        DecodeTimePerformance decode_time;
         st = std::chrono::system_clock::now();
         history_ids_.push_back(token);
+        decode_time.decode_prev_token_ = history_ids_.size();
         logits = forward({token});
         if (nullptr == logits.get()) {
             return "";
@@ -375,6 +395,8 @@ std::string Llm::generate(const std::vector<int>& input_ids, std::ostream* os, c
         token = sample(logits, history_ids_);
         et = std::chrono::system_clock::now();
         decode_us_ += std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
+        decode_time.decode_us_ = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
+        perf->decode_record_.push_back(decode_time);
         if (is_stop(token)) {
             *os << end_with << std::flush;
             break;
@@ -465,6 +487,19 @@ void Llm::print_speed() {
     printf(" decode speed = %.2f tok/s\n", gen_seq_len_ / decode_s);
     printf("   chat speed = %.2f tok/s\n", gen_seq_len_ / total_s);
     printf("##################################\n");
+}
+
+void Llm::print_speed(std::ostream* os) {
+    (*os) << "prefill " << time_perf_.prefill_record_.size() << std::endl;
+    (*os) << "prev_token token speed(token/s)" << std::endl;
+    for (auto record : time_perf_.prefill_record_) {
+        (*os) << record.prefill_prev_token_ << " " << record.prefill_token_ << " " << record.prefill_token_/(((float)record.prefill_us_)*MICRO_TO_SEC) << std::endl;
+    }
+    (*os) << "decode " << time_perf_.decode_record_.size() << std::endl;
+    (*os) << "prev_token speed(token/s)" << std::endl;
+    for (auto record : time_perf_.decode_record_) {
+        (*os) << record.decode_prev_token_ << " " << 1./(((float)record.decode_us_)*MICRO_TO_SEC) << std::endl;
+    }
 }
 
 static inline bool needNewVar(VARP var, int axis, int seq_len) {

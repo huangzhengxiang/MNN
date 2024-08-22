@@ -33,6 +33,7 @@ static void trace_prepare(Llm* llm) {
     }
     MNN_PRINT("Prepare for resize opt End\n");
     llm->trace(false);
+    llm->reset();
 }
 
 std::vector<std::vector<std::string>> parse_csv(const std::vector<std::string>& lines) {
@@ -186,7 +187,9 @@ int main(int argc, const char* argv[]) {
         trace_prepare(llm.get());
     }
     if (argc < 3) {
-        llm->chat();
+        std::ofstream time_file("log.txt", std::ofstream::out);
+        llm->chat(&time_file);
+        time_file.close();
         return 0;
     }
     std::string prompt_file = argv[2];

@@ -225,7 +225,7 @@ public:
     }
 
     bool reuse_kv() const {
-        return config_.value("reuse_kv", false);
+        return config_.value("reuse_kv", true);
     }
 
     int quant_kv() const {
