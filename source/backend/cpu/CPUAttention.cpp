@@ -17,6 +17,7 @@
 #include "core/BufferAllocator.hpp"
 #include "core/TensorUtils.hpp"
 #include "core/OpCommonUtils.hpp"
+#include <iostream>
 
 #if defined (__aarch64__)
 #define FLOAT16_T __fp16
@@ -117,8 +118,11 @@ static void pack_query(Tensor* query, char* pack_q, int mNumHead, int mHeadDim, 
         int in_index  = i % eP;
         for (int j = 0; j < mHeadDim; j++) {
             query_dst[out_index * mHeadDim * eP + j * eP + in_index] = query_src[i * mNumHead * mHeadDim + h * mHeadDim + j] * q_scale;
+            // std::cout << query_dst[out_index * mHeadDim * eP + j * eP + in_index] << " ";
         }
+        // std::cout << std::endl;
     }
+    // std::cout << std::endl;
 }
 
 template <typename T>
@@ -224,8 +228,11 @@ static void unpack_QK(float * unpack_qk_dst, char * pack_qk_src, int seq_len, in
             int out_index = j / unit;
             int in_index  = j % unit;
             dst[i * kv_seq_len + j] = src[out_index * seq_len * unit + i * unit + in_index];
+            // std::cout << dst[i * kv_seq_len + j] << " ";
         }
+        // std::cout << std::endl;
     }
+    // std::cout << std::endl;
 }
 
 template <typename T>
@@ -281,8 +288,11 @@ static void unpack_QKV(char* pack_qkv, char* unpack_qkv, int mNumHead, int mHead
             int a = j / unit;
             int b = j % unit;
             dst_ptr[i * mNumHead * mHeadDim + j] = src_ptr[a * seq_len * unit + i * unit + b];
+            // std::cout << dst_ptr[i * mNumHead * mHeadDim + j] << " ";
         }
+        // std::cout << std::endl;
     }
+    // std::cout << std::endl;
 }
 
 void CPUAttention::allocKVCache(int kv_seq_len, bool quantKey, bool quantValue) {

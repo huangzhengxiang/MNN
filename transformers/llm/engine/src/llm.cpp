@@ -144,7 +144,7 @@ void Llm::load() {
         MNN_PRINT("Done!\n");
     } else {
         // load split models
-        modules_.resize(layer_nums + 2);
+        modules_.resize(layer_nums + 1);
         // load lm model
         modules_[layer_nums].reset(Module::load({}, {}, config_->lm_model().c_str(), runtime_manager_, &module_config));
         // load block models
@@ -279,7 +279,7 @@ void Llm::chat() {
     while (true) {
         std::cout << "\nQ: ";
         std::string user_str;
-        std::cin >> user_str;
+        std::getline(std::cin, user_str);
         if (user_str == "/exit") {
             break;
         }
