@@ -228,11 +228,8 @@ static void unpack_QK(float * unpack_qk_dst, char * pack_qk_src, int seq_len, in
             int out_index = j / unit;
             int in_index  = j % unit;
             dst[i * kv_seq_len + j] = src[out_index * seq_len * unit + i * unit + in_index];
-            // std::cout << dst[i * kv_seq_len + j] << " ";
         }
-        // std::cout << std::endl;
     }
-    // std::cout << std::endl;
 }
 
 template <typename T>

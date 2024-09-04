@@ -397,7 +397,6 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
                     extrabias = _mm256_mul_ps(f128, extrabias);
                     auto extrabias0 = _mm256_mul_ps(extrabias, extrascale0);
                     auto extrabias1 = _mm256_mul_ps(extrabias, extrascale1);
-                    auto extrabias2 = _mm256_mul_ps(extrabias, extrascale2);
                     f0 = _mm256_sub_ps(f0, extrabias0);
                     f1 = _mm256_sub_ps(f1, extrabias1);
                 }
@@ -467,8 +466,6 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
                     auto extrabias = _mm256_loadu_ps(extraB);
                     extrabias = _mm256_mul_ps(f128, extrabias);
                     auto extrabias0 = _mm256_mul_ps(extrabias, extrascale0);
-                    auto extrabias1 = _mm256_mul_ps(extrabias, extrascale1);
-                    auto extrabias2 = _mm256_mul_ps(extrabias, extrascale2);
                     f0 = _mm256_sub_ps(f0, extrabias0);
                 }
             }

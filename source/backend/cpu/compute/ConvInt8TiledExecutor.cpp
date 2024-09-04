@@ -16,6 +16,8 @@
 #include "core/Concurrency.h"
 #include "core/TensorUtils.hpp"
 
+#include <iostream>
+
 namespace MNN {
 
 ConvInt8TiledExecutor::ConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res): CPUConvolution(convOp->common(), backend), mResourceInt8(res), mMutableResource(res, backend) {
@@ -659,7 +661,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     } else {
         // offline quant.
     }
-    
+
     if (mResource->mDequantize.bits == 4) {
         weightBytes   = 0.5;
         weight_step_Y *= 0.5;
