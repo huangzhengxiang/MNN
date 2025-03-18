@@ -55,6 +55,7 @@ public class ModelDownloadManager {
 
     private HfApiClient hfApiClient;
     private MsApiClient msApiClient;
+    private final String localDownloadPath = "/data/local/tmp/llm/model/";
 
     private OkHttpClient metaInfoClient;
     private final HashMap<String, DownloadInfo> downloadInfoMap = new HashMap<>();
@@ -91,6 +92,9 @@ public class ModelDownloadManager {
     }
 
     public File getDownloadPath(String modelId) {
+        if (getLocalModelPath(modelId).exists()) {
+            return getLocalModelPath(modelId);
+        }
         if (ModelSources.get().getRemoteSourceType() == ModelSources.ModelSourceType.HUGGING_FACE) {
             return getHfDownloadModelPath(modelId);
         } else {
@@ -117,6 +121,9 @@ public class ModelDownloadManager {
     private File getMsModelPath(String modelId) {
         String modelScopeId = ModelSources.get().getConfig().getRepoConfig(modelId).modelScopePath;
         return new File(this.modelScopeCachePath, DownloadFileUtils.getLastFileName(modelScopeId));
+    }
+    private File getLocalModelPath(String modelId) {
+        return new File(this.localDownloadPath, DownloadFileUtils.getLastFileName(modelId));
     }
 
     public void pauseDownload(String modelId) {

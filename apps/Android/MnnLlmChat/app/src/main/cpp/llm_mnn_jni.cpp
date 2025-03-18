@@ -165,7 +165,6 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(J
     if (is_r1) {
         extra_config += R"(,"use_template":false, "precision": "high")";
     }
-    extra_config += R"(,"reuse_kv":true)";
     extra_config = extra_config + R"(})";
     MNN_DEBUG("extra_config: %s", extra_config.c_str());
     llm->set_config(extra_config);
