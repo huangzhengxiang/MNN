@@ -160,17 +160,20 @@ static int ceval(Llm* llm, const std::vector<std::string>& lines, std::string fi
     return 0;
 }
 
-static int eval(Llm* llm, std::string prompt_file, int max_token_number) {
+static int eval(Llm* llm, std::string prompt_file, int max_token_number, bool whole) {
     std::cout << "prompt file is " << prompt_file << std::endl;
     std::ifstream prompt_fs(prompt_file);
     std::vector<std::string> prompts;
     std::string prompt;
+    std::string article;
     while (std::getline(prompt_fs, prompt)) {
         if (prompt.back() == '\r') {
             prompt.pop_back();
         }
-        prompts.push_back(prompt);
+        if (whole) { article += prompt + "\n"; }
+        else  { prompts.push_back(prompt); }
     }
+    if (whole) { prompts.push_back(article); }
     prompt_fs.close();
     if (prompts.empty()) {
         return 1;
@@ -231,10 +234,15 @@ int main(int argc, const char* argv[]) {
         return 0;
     }
     int max_token_number = -1;
+    bool whole = false;
     if (argc >= 4) {
         std::istringstream os(argv[3]);
         os >> max_token_number;
     }
+    if (argc >= 5) {
+        std::istringstream os(argv[4]);
+        os >> whole;
+    }
     std::string prompt_file = argv[2];
-    return eval(llm.get(), prompt_file, max_token_number);
+    return eval(llm.get(), prompt_file, max_token_number, whole);
 }
