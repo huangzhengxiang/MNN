@@ -15,6 +15,8 @@
 #include <initializer_list>
 using namespace MNN::Transformer;
 
+#define UP_DIV(x, y) (((x) + (y) - (1)) / (y))
+
 static void tuning_prepare(Llm* llm) {
     MNN_PRINT("Prepare for tuning opt Begin\n");
     llm->tuning(OP_ENCODER_NUMBER, {1, 5, 10, 20, 30, 50, 100});
@@ -76,6 +78,95 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
     auto context = llm->getContext();
     if (max_token_number > 0) {
         llm->set_config("{\"max_new_tokens\":1}");
+    }
+    for (int i = 0; i < prompts.size(); i++) {
+        const auto& prompt = prompts[i];
+        // prompt start with '#' will be ignored
+        if (prompt.substr(0, 1) == "#") {
+            continue;
+        }
+        if (max_token_number > 0) {
+            llm->response(prompt, &std::cout, nullptr, 0);
+            while (!llm->stoped() && context->gen_seq_len < max_token_number) {
+                llm->generate(1);
+            }
+        } else {
+            llm->response(prompt);
+        }
+        llm->reset();
+        prompt_len += context->prompt_len;
+        decode_len += context->gen_seq_len;
+        vision_time += context->vision_us;
+        audio_time += context->audio_us;
+        prefill_time += context->prefill_us;
+        decode_time += context->decode_us;
+        sample_time += context->sample_us;
+    }
+    float vision_s = vision_time / 1e6;
+    float audio_s = audio_time / 1e6;
+    float prefill_s = prefill_time / 1e6;
+    float decode_s = decode_time / 1e6;
+    float sample_s = sample_time / 1e6;
+    printf("\n#################################\n");
+    printf("prompt tokens num = %d\n", prompt_len);
+    printf("decode tokens num = %d\n", decode_len);
+    printf(" vision time = %.2f s\n", vision_s);
+    printf("  audio time = %.2f s\n", audio_s);
+    printf("prefill time = %.2f s\n", prefill_s);
+    printf(" decode time = %.2f s\n", decode_s);
+    printf(" sample time = %.2f s\n", sample_s);
+    printf("prefill speed = %.2f tok/s\n", prompt_len / prefill_s);
+    printf(" decode speed = %.2f tok/s\n", decode_len / decode_s);
+    printf("##################################\n");
+    return 0;
+}
+
+static std::string decode(Llm* llm, std::vector<int> tokens) {
+    std::string prompt;
+    for (const auto& token: tokens) {
+        prompt += llm->tokenizer_decode(token);
+    }
+    return prompt;
+}
+
+static int long_benchmark(Llm* llm, std::vector<std::string>& prompts, int max_token_number) {
+    std::ifstream prompt_fs("prompt/system.txt");
+    std::string line;
+    std::string sys_prompt;
+    while (std::getline(prompt_fs, line)) {
+        if (line.back() == '\r') {
+            line.pop_back();
+        }
+        sys_prompt += line + "\n";
+    }
+    prompt_fs.close();
+
+    int prompt_len = 0;
+    int decode_len = 0;
+    int64_t vision_time = 0;
+    int64_t audio_time = 0;
+    int64_t prefill_time = 0;
+    int64_t decode_time = 0;
+    int64_t sample_time = 0;
+    // llm->warmup();
+    auto context = llm->getContext();
+    if (max_token_number > 0) {
+        llm->set_config("{\"max_new_tokens\":1}");
+    }
+    {
+        const int chunk = 2048;
+        std::vector<int> content_tokens = llm->tokenizer_encode(prompts[0]);
+        prompts.resize(UP_DIV(content_tokens.size(), chunk));
+        printf("tokens: %d, chunks: %d\n", (int)content_tokens.size(), (int)prompts.size());
+        for (int i = 0; i < prompts.size(); i++) {
+            std::string prompt;
+            if (i*chunk+chunk <= content_tokens.size()) {
+                prompt = decode(llm, std::vector<int>(content_tokens.begin()+i*chunk, content_tokens.begin()+i*chunk+chunk));
+            } else {
+                prompt = decode(llm, std::vector<int>(content_tokens.begin()+i*chunk, content_tokens.end()));
+            }
+            prompts[i] = sys_prompt + prompt;
+        }
     }
     for (int i = 0; i < prompts.size(); i++) {
         const auto& prompt = prompts[i];
@@ -181,6 +272,9 @@ static int eval(Llm* llm, std::string prompt_file, int max_token_number, bool wh
     // ceval
     if (prompts[0] == "id,question,A,B,C,D,answer") {
         return ceval(llm, prompts, prompt_file);
+    }
+    if (prompts[0].size() > 10000) {
+        return long_benchmark(llm, prompts, max_token_number);
     }
     return benchmark(llm, prompts, max_token_number);
 }
