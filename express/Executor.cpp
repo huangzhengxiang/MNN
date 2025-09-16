@@ -85,6 +85,7 @@ Executor::Executor(std::shared_ptr<Runtime> runtime, MNNForwardType type, int nu
     mRuntimeInfo.first.insert(std::make_pair(type, runtime));
     mAttr.reset(new ExecutorAttr);
     mAttr->firstType = type;
+    mAttr->numThread = numberThread;
     if (type == MNN_FORWARD_CPU) {
         mRuntimeInfo.second = runtime;
     } else {
@@ -230,6 +231,14 @@ void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {
         iter.second->setRuntimeHint(mInside->mContent->modes.runtimeHint);
     }
 }
+void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int* value, size_t size) {
+    mInside->mContent->modes.setHint(mode, value, size);
+    auto current = ExecutorScope::Current();
+    auto rt = current->getRuntime();
+    for (auto& iter : rt.first) {
+        iter.second->setRuntimeHint(mInside->mContent->modes.runtimeHint);
+    }
+}
 void Executor::RuntimeManager::setExternalPath(std::string path, int type) {
     mInside->mContent->modes.setExternalPath(path, type);
 }
@@ -268,6 +277,17 @@ bool Executor::RuntimeManager::getInfo(Interpreter::SessionInfoCode code, void* 
         default: {
             // Do nothing
         } break;
+    }
+    return false;
+}
+
+bool Executor::RuntimeManager::getDeviceInfo(const std::string& deviceKey, const MNNForwardType type, std::string& deviceValue) {
+    auto creator = MNNGetExtraRuntimeCreator(type);
+    if (creator != nullptr) {
+        auto res = creator->onGetDeviceInfo(deviceKey, deviceValue);
+        if(res) {
+            return true;
+        }
     }
     return false;
 }
@@ -327,6 +347,7 @@ void Executor::RuntimeManager::setCache(std::string cacheName) {
 
     mInside->mCache.reset(new Cache);
     mInside->mCache->cacheFile = cacheName;
+    mInside->mInfo->onSetCachePath(cacheName.c_str(), 0);
     if (nullptr == mInside->mCache->cacheFile.c_str()) {
         MNN_ERROR("Empty cacheFile\n");
         return;

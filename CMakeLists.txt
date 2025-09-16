@@ -78,6 +78,7 @@ option(MNN_SUPPORT_BF16 "Enable MNN's bf16 op" OFF)
 option(MNN_LOW_MEMORY "Build MNN support low memory for weight quant model." OFF)
 option(MNN_CPU_WEIGHT_DEQUANT_GEMM "Build MNN CPU weight dequant related gemm kernels." OFF)
 option(MNN_BUILD_AUDIO "Build audio api in MNN." OFF)
+option(MNN_SME2 "Use Arm sme2 instructions" ON)
 
 if (MNN_BUILD_MINI)
     set(MNN_SKIPBUILD_GEOMETRY ON)
@@ -128,6 +129,10 @@ IF(WIN32)
     SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /wd4267 /wd4018 /wd4251 /wd4996 /wd4244 /wd4146 /wd4129 /wd4305 /wd4275 /wd4101")
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4267 /wd4018 /wd4251 /wd4996 /wd4244 /wd4146 /wd4129 /wd4305 /wd4275 /wd4101")
   ENDIF()
+ENDIF()
+
+IF (NOT MNN_BUILD_SHARED_LIBS)
+    add_definitions(-DMNN_BUILD_STATIC_LIBS)
 ENDIF()
 
 # for coverage test
@@ -235,7 +240,7 @@ option(MNN_OPENGL "Enable OpenGL" OFF)
 option(MNN_VULKAN "Enable Vulkan" OFF)
 option(MNN_ARM82 "Enable ARMv8.2's FP16 Compute" ON)
 option(MNN_SUPPORT_FP16_ARMV7 "Enable ARMv8.2's FP16 Compute for armv7 arch, may cause library not valid for 32 bit cpu" OFF)
-option(MNN_KLEIDIAI "Enable KLEIDIAI" OFF)
+option(MNN_KLEIDIAI "Enable KLEIDIAI" ON)
 option(MNN_ONEDNN "Enable oneDNN" OFF)
 option(MNN_AVX2 "Open AVX2 Compile for x86 if possible" ON)
 option(MNN_AVX512 "Enable AVX512" OFF)
@@ -564,8 +569,10 @@ if ((NOT MSVC) AND MNN_HIDDEN)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility-inlines-hidden -fvisibility=hidden")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvisibility=hidden")
     set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -fvisibility=hidden")
-    # Omit frame pointer may cause difficult debug
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fomit-frame-pointer")
+    if (NOT APPLE)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fomit-frame-pointer -funwind-tables")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fomit-frame-pointer -funwind-tables")
+    endif()
 endif()
 if (NOT MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstrict-aliasing -ffunction-sections -fdata-sections -fno-rtti -fno-exceptions ")
@@ -833,11 +840,10 @@ if(APPLE)
       set_target_properties(MNN PROPERTIES FRAMEWORK TRUE)
       set_target_properties(MNN PROPERTIES
           MACOSX_FRAMEWORK_IDENTIFIER com.alibaba.MNN
-          MACOSX_FRAMEWORK_SHORT_VERSION_STRING ${PACKAGE_VERSION}
-          MACOSX_FRAMEWORK_BUNDLE_VERSION ${PACKAGE_VERSION}
+          MACOSX_FRAMEWORK_SHORT_VERSION_STRING ${MNN_VERSION}
+          MACOSX_FRAMEWORK_BUNDLE_VERSION ${MNN_VERSION}
           XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer"
       )
-      set_target_properties(MNN PROPERTIES MACOSX_FRAMEWORK_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/project/ios/MNN/Info.plist)
     ENDIF()
     IF(MNN_METAL)
       find_library(FOUNDATION Foundation REQUIRED)

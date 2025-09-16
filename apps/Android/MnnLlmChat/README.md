@@ -3,6 +3,8 @@
 
 [Download](#releases)  [下载](./README_CN.md#releases)
 
+[GooglePlay](https://play.google.com/store/apps/details?id=com.alibaba.mnnllm.android.release)
+
 [iOS App](../../iOS/MNNLLMChat/README.md)
 
 ## Introduction
@@ -48,7 +50,7 @@ This is our full multimodal language model (LLM) Android app
   cd project/android
   mkdir build_64
   cd build_64
-  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=OFF -DCMAKE_INSTALL_PREFIX=."
+  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=OFF -DCMAKE_SHARED_LINKER_FLAGS='-Wl,-z,max-page-size=16384' -DCMAKE_INSTALL_PREFIX=."
   make install
   ```
 
@@ -59,6 +61,52 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.7.3.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_3_1.apk)
++ Optimize ApiService
+## Version 0.7.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_2.apk)
++ Bugfix:
+  + qwen think/no_think switch sometimes not work.
++ UI Update:
+  + update ui for history and benchmark test screen.
+## Version 0.7.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_1.apk)
++ add new models: 
+  + [MiniCPM-V-4](https://huggingface.co/openbmb/MiniCPM-V-4): GPT-4V Level MLLM for Single Image, Multi Image and Video on Your Phone
+  + [WebSailor-3B](https://huggingface.co/Alibaba-NLP/WebSailor-3B): a complete post-training methodology designed to teach LLM agents sophisticated reasoning for complex web navigation and information-seeking tasks.
+  + [Lingshu-7B](https://huggingface.co/lingshu-medical-mllm/Lingshu-7B):Multimodal Large Language Models for Medical Domain
++ bugfix:  
+ + Crash when choose images.
+
+## Version 0.7.0
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_0.apk)
++ add new models: gpt-oss-20b
++ bugfix: cannot delete models downloaded from huggingface
+## Version 0.6.8
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_6_8.apk)
++ add new models:  SmolLM3-3B、gemma-3-1b 
++ support penalty sampler in mixed sampler mode.
++ can switch models in chat screen.
++ can update models when the remote models changed.
++ fix download source for huggingface.
++ Support  Realtime voice call with ASR and TTS
+## Version 0.5.1.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1_2.apk)
++ fix huggingface download error
++ fix showing wrong download state when not download start.
+
+## Version 0.5.1.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1_1.apk)
++ Upgrade MNN engine to v3.2.0
++ fix some bugs
+## Version 0.5.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1.apk)
++ Support DeepSeek-R1-0528-Qwen3
++ fix some bugs:
+  + first install use ModelScope if system language chinese
+  + do not show dialog if not forceCheckUpdate
+  + show model size of local model
 ## Version 0.5.0
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_0.apk)
 + Support Qwen3-30B-A3B

@@ -27,16 +27,6 @@ namespace OpenCL {
 void registerOpenCLOps();
 #endif
 
-std::mutex CLRuntime::globalRuntimeLock;
-std::weak_ptr<OpenCLRuntime> CLRuntime::globalRuntime;
-void CLRuntime::setGlobalCLRuntime(std::shared_ptr<OpenCLRuntime> runtime){
-    std::lock_guard<std::mutex> _l(globalRuntimeLock);
-    globalRuntime = runtime;
-}
-std::shared_ptr<OpenCLRuntime> CLRuntime::getGlobalCLRuntime(){
-    auto sharedPtr = globalRuntime.lock();
-    return sharedPtr;
-}
 
 CLRuntime::CLRuntime(const Backend::Info& info){
     mInfo = info;
@@ -44,7 +34,6 @@ CLRuntime::CLRuntime(const Backend::Info& info){
     int device_id = 0;
     int platform_size = 0;
     void *context_ptr = nullptr;
-    auto globalRuntimePtr = getGlobalCLRuntime();
     if (nullptr != info.user) {
         if (info.user->sharedContext != nullptr) {
             platform_id   = ((MNNDeviceContext*)info.user->sharedContext)->platformId;
@@ -58,13 +47,13 @@ CLRuntime::CLRuntime(const Backend::Info& info){
         mPrecision = mInfo.user->precision;
         mMemory    = mInfo.user->memory;
     }
-
-    if(globalRuntimePtr && globalRuntimePtr.get()->canShareRuntime(platform_size, platform_id, device_id, context_ptr)){
-        mOpenCLRuntime = globalRuntimePtr;
-    }else{
-        mOpenCLRuntime.reset(new OpenCLRuntime(platform_size, platform_id, device_id, context_ptr, hint()));
-        setGlobalCLRuntime(mOpenCLRuntime);
+    
+    // protect
+    if(mPrecision > 2 || mPrecision < 0){
+        mPrecision = BackendConfig::Precision_High;
     }
+    
+    mOpenCLRuntime.reset(new OpenCLRuntime(platform_size, platform_id, device_id, context_ptr, hint()));
     
     //Whether runtimeError
     mCLRuntimeError = mOpenCLRuntime->isCreateError();
@@ -222,7 +211,13 @@ Backend* CLRuntime::onCreate(const BackendConfig* config, Backend* origin) const
         precision = config->precision;
         memory = config->memory;
     }
-    return new OpenCLBackend(precision, memory, mInfo.gpuMode, mImagePool, mBufferPool, this);
+    // protect
+    if(precision > 2 || precision < 0){
+        precision = BackendConfig::Precision_High;
+    }
+    auto backend = new OpenCLBackend(precision, memory, mInfo.gpuMode, mImagePool, mBufferPool, this);
+    backend->setMetaPtr(pMeta);
+    return backend;
 }
 
 void CLRuntime::onGabageCollect(int level) {
@@ -254,7 +249,14 @@ OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConf
     mOpenCLRuntime = mCLRuntime->mOpenCLRuntime;
     if(mOpenCLRuntime->isSupportedFP16()){
         mPrecision = precision;
+        if(precision == BackendConfig::Precision_Low_BF16){
+            mPrecision = BackendConfig::Precision_Low;
+        }
     } else{
+        mPrecision = BackendConfig::Precision_High;
+    }
+    // protect
+    if(mPrecision > 2 || mPrecision < 0){
         mPrecision = BackendConfig::Precision_High;
     }
     mMemory = memory;
@@ -393,6 +395,7 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
             size = N * H * W * C;
             size = ROUND_UP(size, 4);
         }
+        #ifdef MNN_SUPPORT_INTEL_SUBGROUP
         if (mOpenCLRuntime->isSupportedIntelSubgroup()) {
             int cPack = TensorUtils::getTensorChannelPack(nativeTensor);
             auto pads  = TensorUtils::getDescribe(nativeTensor)->mPads;
@@ -400,6 +403,7 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
             size_t imageHeight = (size_t)N * H;
             size = imageWidth*imageHeight*cPack;
         }
+        #endif
         // Align when int4 memory
         size = ROUND_UP(size, 2);
         if (storageType == DYNAMIC_SEPERATE) {
@@ -466,7 +470,7 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
 }
 
 bool OpenCLBackend::onSelectDynamicAllocator(int index, int maxIndex) {
-    if (mUseRecordQueue && false == mDevideOpRecord){
+    if (mUseRecordQueue && false == mDivideOpRecord){
         return false;
     }
     if (maxIndex > 2) {
@@ -525,7 +529,7 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         return NULL;
     }
     if (iter == creators->end()) {
-        mDevideOpRecord = true;
+        mDivideOpRecord = true;
         #ifdef OPENCL_FALLBACK_LOG
         if (nullptr != op->name()) {
             MNN_PRINT("Don't support type %s memObject:%d, %s\n", EnumNameOpType(op->type()), mMemType, op->name()->c_str());
@@ -565,7 +569,7 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         }
 
         if (!valid) {
-            mDevideOpRecord = true;
+            mDivideOpRecord = true;
             #ifdef OPENCL_FALLBACK_LOG
             for (auto t : inputs) {
                 auto tensorShape = OpenCL::tensorShapeFormat(t);
@@ -589,7 +593,7 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
 
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (NULL == exe) {
-        mDevideOpRecord = true;
+        mDivideOpRecord = true;
         #ifdef OPENCL_FALLBACK_LOG
         if (nullptr != op->name()) {
             MNN_PRINT("The Creator Don't support type %s, memObject:%d, %s\n", MNN::EnumNameOpType(op->type()), mMemType, op->name()->c_str());
@@ -820,12 +824,14 @@ void OpenCLBackend::copyFromDevice(const Tensor* srcTensor, const Tensor* dstTen
             directCopy = false;
         }
     }
+    #ifdef MNN_SUPPORT_INTEL_SUBGROUP
     if(mOpenCLRuntime->isSupportedIntelSubgroup()){
         int cPack = TensorUtils::getTensorChannelPack(srcTensor);
         if (cPack == 16){
             directCopy = false;
         }
     }
+    #endif
     void* hostPtr = dstTensor->host<float>();
     if(directCopy){
         mOpenCLRuntime->commandQueue().enqueueReadBuffer(openCLBuffer(srcTensor), CL_TRUE, 0, needSize, hostPtr);
@@ -928,12 +934,14 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
             directCopy = false;
         }
     }
+    #ifdef MNN_SUPPORT_INTEL_SUBGROUP
     if(mOpenCLRuntime->isSupportedIntelSubgroup()){
         int cPack = TensorUtils::getTensorChannelPack(dstTensor);
         if (cPack == 16){
             directCopy = false;
         }
     }
+    #endif
     if(directCopy){
         mOpenCLRuntime->commandQueue().enqueueWriteBuffer(openCLBuffer(dstTensor), CL_TRUE, 0, needSize, hostPtr);
         return;
@@ -1232,7 +1240,7 @@ int OpenCLBackend::fpBytes() {
 
 void OpenCLBackend::clearRecord() const{
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
-    if(mUseRecordQueue && mDevideOpRecord){
+    if(mUseRecordQueue && mDivideOpRecord){
         for(int i = 0; i < mRecordings.size(); ++i){
             std::vector<cl_array_arg_qcom> update_kernel_args;
             std::vector<cl_workgroup_qcom> update_global_size;
@@ -1263,7 +1271,7 @@ void OpenCLBackend::clearRecord() const{
 
 void OpenCLBackend::enqeueRecord() const{
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
-    if(mUseRecordQueue && !mDevideOpRecord){
+    if(mUseRecordQueue && !mDivideOpRecord){
         for(int i = 0; i < mRecordings.size(); ++i){
             std::vector<cl_array_arg_qcom> update_kernel_args;
             std::vector<cl_workgroup_qcom> update_global_size;
@@ -1290,7 +1298,7 @@ void OpenCLBackend::enqeueRecord() const{
 
 void OpenCLBackend::releaseRecord(){
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
-    if(mUseRecordQueue  && !mDevideOpRecord){
+    if(mUseRecordQueue  && !mDivideOpRecord){
         for(int i = 0; i < mRecordings.size(); ++i){
             cl_int res = clReleaseRecordingQCOM(mRecordings[i].record);
             MNN_CHECK_CL_SUCCESS(res, "clReleaseRecordingQCOM");
@@ -1309,7 +1317,7 @@ void OpenCLBackend::startRecord(cl_recording_qcom &recording){
     MNN_PRINT("start startRecord !\n");
 #endif
     cl_int res = CL_SUCCESS;
-    if(mDevideOpRecord){
+    if(mDivideOpRecord){
         if(recording != NULL){
             clReleaseRecordingQCOM(recording);
         }
@@ -1330,7 +1338,7 @@ void OpenCLBackend::endRecord(cl_recording_qcom &recording, bool flag){
 #ifdef LOG_VERBOSE
     MNN_PRINT("start endRecord !\n");
 #endif
-    if(mDevideOpRecord){
+    if(mDivideOpRecord){
         cl_int res = CL_SUCCESS;
         res = clEndRecordingQCOM(recording);
         MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
@@ -1349,7 +1357,7 @@ void OpenCLBackend::endRecord(cl_recording_qcom &recording, bool flag){
 }
 
 void OpenCLBackend::addRecord(cl_recording_qcom &record, std::vector<RecordUpdateInfo *>updateInfo){
-    if(mDevideOpRecord){
+    if(mDivideOpRecord){
         RecordInfo info;
         info.record = record;
         for(int i = 0; i < updateInfo.size(); ++i) {
@@ -1369,7 +1377,7 @@ void OpenCLBackend::recordKernel2d(const std::shared_ptr<KernelWrap> &kernelW, c
     MNN_PRINT("start record2dKernel !\n");
 #endif
     cl_int res = CL_SUCCESS;
-    if(!mDevideOpRecord){
+    if(!mDivideOpRecord){
         RecordInfo info;
         int recordNum = mRecordNums == mUseRecordableQueueSize ? 0 : mRecordNums;
         if(updateInfo != nullptr){
@@ -1439,7 +1447,7 @@ void OpenCLBackend::recordKernel3d(const std::shared_ptr<KernelWrap> &kernelW, c
     for (size_t i = 0; i < 3; ++i) {
         internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
     }
-    if(!mDevideOpRecord){
+    if(!mDivideOpRecord){
         RecordInfo info;
         int recordNum = mRecordNums == mUseRecordableQueueSize ? 0 : mRecordNums;
         if(updateInfo != nullptr){
@@ -1547,12 +1555,12 @@ void OpenCLBackend::setGpuMode(const int cl_mode_num) {
     mUseRecordQueue = ((cl_mode_num & MNN_GPU_RECORD_OP) || (cl_mode_num & MNN_GPU_RECORD_BATCH)) && mOpenCLRuntime->isSupportRecordQueue() && (mUseRecordableQueueSize > 0);
     isSet = (cl_mode_num & MNN_GPU_RECORD_OP);
     if(isSet) {
-        mDevideOpRecord = true;
+        mDivideOpRecord = true;
         totalSet++;
     }
     isSet = (cl_mode_num & MNN_GPU_RECORD_BATCH);
     if(isSet) {
-        mDevideOpRecord = false;
+        mDivideOpRecord = false;
         totalSet++;
     }
     if(totalSet > 1) {

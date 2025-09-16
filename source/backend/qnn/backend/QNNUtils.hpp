@@ -10,6 +10,7 @@
 #define MNN_QNNUTILS_HPP
 
 #include "QnnInterface.h"
+#include "System/QnnSystemInterface.h"
 #include "QnnCommon.h"
 #include "QnnLog.h"
 #include "QnnTypes.h"
@@ -17,7 +18,6 @@
 #include <MNN/HalideRuntime.h>
 #include <map>
 #include "core/TensorUtils.hpp"
-#include <dlfcn.h>
 
 #ifdef MNN_USE_ARMV82
 // FP32 <--> FP16 Function
@@ -26,8 +26,8 @@
 #define HALF_TO_FLOAT MNNDequantizeFP16
 #else
 #include "half.hpp"
-#define FLOAT_TO_HALF QnnFloatToHalf
-#define HALF_TO_FLOAT QnnHalfToFloat
+#define FLOAT_TO_HALF QNN::QnnFloatToHalf
+#define HALF_TO_FLOAT QNN::QnnHalfToFloat
 #endif // MNN_USE_ARMV82
 
 #define CALL_QNN(apiCall)                                                       \
@@ -60,6 +60,13 @@ void QnnHalfToFloat(const int16_t* src, float* dst, size_t size);
 // the only symbol requiring dynamic loading
 typedef Qnn_ErrorHandle_t (*QnnInterface_getProviders_t)(const QnnInterface_t*** providerList, uint32_t* numProviders);
 extern QnnInterface_getProviders_t QnnInterface_getProviders;
+
+#ifdef MNN_WITH_PLUGIN
+typedef Qnn_ErrorHandle_t (*QnnSystemInterface_getProviders_t)(const QnnSystemInterface_t*** providerList,
+                                                  uint32_t* numProviders);
+extern QnnSystemInterface_getProviders_t QnnSystemInterface_getProviders;
+#endif
+
 bool loadQNNSymbol();
 
 // op registration
@@ -80,20 +87,32 @@ extern void ___QNNPaddingCreator__OpType_Padding__();
 extern void ___QNNPoolCreator__OpType_Pooling__();
 extern void ___QNNPoolCreator__OpType_Pooling3D__();
 extern void ___QNNReduceCreator__OpType_Reduction__();
-extern void ___QNNReshapeCreator__OpType_Reshape__();
-extern void ___QNNReshapeCreator__OpType_Squeeze__();
-extern void ___QNNReshapeCreator__OpType_Unsqueeze__();
+extern void ___QNNFlattenCreator__OpType_Reshape__();
+extern void ___QNNFlattenCreator__OpType_Squeeze__();
+extern void ___QNNFlattenCreator__OpType_Unsqueeze__();
 extern void ___QNNReshapeCreator__OpType_ConvertTensor__();
 extern void ___QNNScaleCreator__OpType_Scale__();
 extern void ___QNNSoftmaxCreator__OpType_Softmax__();
 extern void ___QNNStridedSliceCreator__OpType_StridedSlice__();
+extern void ___QNNStridedSliceCreator__OpType_Slice__();
 extern void ___QNNUnaryCreator__OpType_UnaryOp__();
+extern void ___QNNCastCreator__OpType_Cast__();
+extern void ___QNNPermuteCreator__OpType_Permute__();
+extern void ___QNNGatherCreator__OpType_GatherV2__();
+extern void ___QNNBroadcastToCreator__OpType_BroadcastTo__();
+extern void ___QNNMatMulCreator__OpType_MatMul__();
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+extern void ___QNNAttentionCreator__OpType_Attention__();
+#endif
+extern void ___QNNQuantCreator__OpType_FloatToInt8__();
+extern void ___QNNDeQuantCreator__OpType_Int8ToFloat__();
 void registerQNNOps();
-
 
 extern Tensor::DimensionType gQnnTensorDimType;
 
 extern const std::map<Qnn_DataType_t, uint32_t> gQnnTypeSize;
+
+extern std::string gParamMarker;
 
 int getNHWCAxis(const int axis, const int dim, const Tensor::DimensionType type);
 

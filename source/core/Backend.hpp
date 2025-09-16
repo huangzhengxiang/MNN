@@ -34,12 +34,17 @@ struct RuntimeHint {
     int cpuDecreaseRate = 50;
     int dynamicQuantOption = 0;
 
+    // qkvQuantOption % 8:
     // 0: Do not quantize
     // 1: Only quantize key, use int8 asymmetric quantization
     // 2: Only quantize value, use fp8 quantization
     // 3: quantize both key and value
     // 4: quantize query, key and value, and use gemm int8 kernel to compute K*V
-    int qkvQuantOption = 0;
+
+    // qkvQuantOption / 8:
+    // 1: use flash attention
+
+    int qkvQuantOption = 8;
 
     // the kvcache size limit of each layer
     // if the size of kvcache in memory exceeds the limit
@@ -55,9 +60,20 @@ struct RuntimeHint {
     int mmapFileSize = 1024; // MB
     int useCachedMmap = 0;
 
+    // path of the NPU model directory
+    std::string npuModelDirPath;
+
     // op encoder number for once commit
     int encorderNumForCommit = 10;
     int initThreadNumber = 0;
+    
+    // whether to use Arm sme2 cores when threads>1
+    bool useArmSme2Cores = true;
+
+    bool enableKleidiAI = false;
+
+    // Use CPU Ids
+    std::vector<int> cpuIds;
 };
 /** abstract backend */
 class Backend : public NonCopyable {
@@ -241,8 +257,16 @@ public:
         return 0;
     }
 
+public:
+    void* getMetaPtr() {
+        return mMetaPtr;
+    }
+    void setMetaPtr(void* ptr) {
+        mMetaPtr = ptr;
+    }
 private:
     const MNNForwardType mType;
+    void* mMetaPtr;
 };
 
 /** Each backend belong to a runtime*/
@@ -299,6 +323,10 @@ public:
      */
     virtual float onGetMemoryInMB() {
         return 0.0f;
+    }
+    // For NPU backend don't support load from buffer , use onSetCachePath
+    virtual bool onSetCachePath(const char* path, int mode) {
+        return false;
     }
 
     // If buffer is not nullptr, try copy cache, else delete cache
@@ -379,6 +407,9 @@ public:
     virtual bool onValid(Backend::Info& info) const {
         info.mode = Backend::Info::DIRECT;
         return true;
+    }
+    virtual bool onGetDeviceInfo(const std::string& deviceKey, std::string& deviceValue) const {
+        return false;
     }
 protected:
     /**

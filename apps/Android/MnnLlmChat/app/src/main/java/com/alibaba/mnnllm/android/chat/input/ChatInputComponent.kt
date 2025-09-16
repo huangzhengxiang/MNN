@@ -22,16 +22,22 @@ import com.alibaba.mnnllm.android.chat.input.VoiceRecordingModule.VoiceRecording
 import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
+import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.android.utils.KeyboardUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.Permissions.REQUEST_RECORD_AUDIO_PERMISSION
 import java.util.Date
+import com.alibaba.mnnllm.android.modelist.ModelListManager
+import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 
 class ChatInputComponent(
     private val chatActivity: ChatActivity,
     private val binding: ActivityChatBinding,
-    private val modelName: String,
+    modelId:String,
+    modelName: String,
 ) {
+    private var currentModelId: String = modelId
+    private var currentModelName: String = modelName
     private var onStopGenerating: (() -> Unit)? = null
     private var onThinkingModeChanged: ((Boolean) -> Unit)? = null
     private var onAudioOutputModeChanged: ((Boolean) -> Unit)? = null
@@ -39,7 +45,7 @@ class ChatInputComponent(
     private lateinit var editUserMessage: EditText
     private var buttonSend: ImageView = binding.btnSend
     private lateinit var imageMore: ImageView
-    private var attachmentPickerModule: AttachmentPickerModule? = null
+    var attachmentPickerModule: AttachmentPickerModule? = null
     private lateinit var voiceRecordingModule: VoiceRecordingModule
     private var currentUserMessage: ChatDataItem? = null
     private var buttonSwitchVoice: View? = null
@@ -55,8 +61,38 @@ class ChatInputComponent(
         updateAudioOutput()
     }
 
+    /**
+     * Update the model name and refresh related UI components
+     */
+    fun updateModel(newModelId:String, newModelName: String) {
+        val oldModelId = currentModelId
+        currentModelId = newModelId
+        val oldModelName = currentModelName
+        currentModelName = newModelName
+        
+        // Update thinking mode
+        setupThinkingMode()
+        
+        // Update audio output
+        updateAudioOutput()
+        
+        // Update attachment picker if model capabilities changed
+        if (ModelUtils.isVisualModel(oldModelId) != ModelUtils.isVisualModel(newModelId) ||
+            ModelUtils.isAudioModel(oldModelId) != ModelUtils.isAudioModel(newModelId)) {
+            setupAttachmentPickerModule()
+        }
+        // Update voice recording module
+        voiceRecordingModule.updateModel(newModelName)
+        
+        // Update voice button visibility
+        updateVoiceButtonVisibility()
+    }
+
     private fun setupToggleAudioOutput() {
         binding.btnToggleAudioOutput.setOnClickListener {
+            if (chatActivity.isLoading) {
+                return@setOnClickListener
+            }
             if (!binding.btnToggleAudioOutput.isSelected) {
                 android.app.AlertDialog.Builder(chatActivity)
                     .setMessage(R.string.audio_output_confirm)
@@ -79,20 +115,26 @@ class ChatInputComponent(
     }
 
     private fun updateAudioOutput() {
-        if (ModelUtils.supportAudioOutput(modelName)) {
+        if (ModelUtils.supportAudioOutput(currentModelName)) {
             binding.btnToggleAudioOutput.visibility = View.VISIBLE
         } else {
             binding.btnToggleAudioOutput.visibility = View.GONE
         }
     }
+    
     private fun setupThinkingMode() {
-        binding.btnToggleThinking.visibility = if (ModelUtils.isSupportThinkingSwitch(modelName)) {
-            binding.btnToggleThinking.isSelected = true
+        val extraTags = ModelListManager.getExtraTags(currentModelId)
+        binding.btnToggleThinking.visibility = if (ModelUtils.isSupportThinkingSwitchByTags(extraTags)) {
+            binding.btnToggleThinking.isSelected = ModelConfig.loadConfig(currentModelId)?.jinja?.context?.enableThinking != false
             View.VISIBLE
         } else  {
             View.GONE
         }
         binding.btnToggleThinking.setOnClickListener {
+            Log.d(TAG, "handleSendClick isGenerating : ${chatActivity.isLoading}")
+            if (chatActivity.isLoading) {
+                return@setOnClickListener
+            }
             binding.btnToggleThinking.isSelected = !binding.btnToggleThinking.isSelected
             onThinkingModeChanged?.apply {
                 this(binding.btnToggleThinking.isSelected)
@@ -163,11 +205,11 @@ class ChatInputComponent(
     }
 
     private fun updateVoiceButtonVisibility() {
-        if (!ModelUtils.isAudioModel(modelName)) {
+        if (!ModelUtils.isAudioModel(currentModelName)) {
             return
         }
         var visible = true
-        if (!ModelUtils.isAudioModel(modelName)) {
+        if (!ModelUtils.isAudioModel(currentModelName)) {
             visible = false
         } else if (chatActivity.isGenerating) {
             visible = false
@@ -183,7 +225,7 @@ class ChatInputComponent(
     private fun setupAttachmentPickerModule() {
         imageMore = binding.btPlus
         buttonSwitchVoice = binding.btSwitchAudio
-        if (!ModelUtils.isVisualModel(this.modelName) && !ModelUtils.isAudioModel(this.modelName!!)) {
+        if (!ModelUtils.isVisualModel(currentModelId) && !ModelUtils.isAudioModel(currentModelId)) {
             imageMore.setVisibility(View.GONE)
             return
         }
@@ -237,7 +279,8 @@ class ChatInputComponent(
             }
 
             override fun onLeaveRecordingMode() {
-                if (ModelUtils.isSupportThinkingSwitch(modelName)) {
+                val extraTags = ModelListManager.getExtraTags(currentModelId)
+                if (ModelUtils.isSupportThinkingSwitchByTags(extraTags)) {
                     binding.btnToggleThinking.visibility = View.VISIBLE
                 }
                 updateAudioOutput()
@@ -288,9 +331,10 @@ class ChatInputComponent(
 
     fun onLoadingStatesChanged(loading: Boolean) {
         this.updateSenderButton()
-        if (!loading && ModelUtils.isAudioModel(modelName)) {
+        if (!loading && ModelUtils.isAudioModel(currentModelName)) {
             voiceRecordingModule.onEnabled()
         }
+
     }
 
     fun onRequestPermissionsResult(
@@ -304,6 +348,9 @@ class ChatInputComponent(
             } else {
                 voiceRecordingModule.handlePermissionDenied()
             }
+        } else if (attachmentPickerModule != null && 
+                   requestCode == AttachmentPickerModule.REQUEST_CODE_CAMERA_PERMISSION) {
+            attachmentPickerModule!!.onRequestPermissionsResult(requestCode, permissions, grantResults)
         }
     }
 

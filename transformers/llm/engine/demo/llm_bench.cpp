@@ -73,7 +73,7 @@ static const RuntimeParameters runtimeParamsDefaults = {
 static const TestParameters testParamsDefaults = {
     /* nPrompt             */ { 512 },
     /* nGenerate           */ { 128 },
-    /* nPrompGen           */ {std::make_pair(512, 128)},
+    /* nPrompGen           */ {std::make_pair(0, 0)},
     /* nRepeat             */ { 5 },
     /* kvCache             */ { "false" },
     /* loadingTime         */ {"false"}
@@ -282,7 +282,7 @@ struct markdownPrinter : public Printer {
         fields.emplace_back("backend");
         fields.emplace_back("threads");
 
-        if (rp.precision.size() > 1) {
+        if (rp.precision.size() > 0) {
             fields.emplace_back("precision");
         }
         if (rp.memory.size() > 1) {
@@ -395,10 +395,6 @@ struct markdownPrinter : public Printer {
         }
         fprintf(fout, "\n");
     }
-
-//    void print_footer() override {
-//        fprintf(fout, "\nbuild: %s \n", test::build_commit.c_str());
-//    }
 };
 
 static FILE* openFile(const char* file, bool read) {
@@ -570,7 +566,7 @@ static void printUsage(int /* argc */, char ** argv) {
     printf("\n");
     printf("options:\n");
     printf("  -h, --help\n");
-    printf("  -m, --model <filename>                    (default: %s)\n", join(runtimeParamsDefaults.model, ",").c_str());
+    printf("  -m, --model <filename>                    (default: ./Qwen2.5-1.5B-Instruct/config.json)\n");
     printf("  -a, --backends <cpu,opencl,metal>         (default: %s)\n", "cpu");
     printf("  -c, --precision <n>                       (default: %s) | Note: (0:Normal(for cpu bakend, 'Nornal' is 'High'),1:High,2:Low)\n", join(runtimeParamsDefaults.precision, ",").c_str());
     printf("  -t, --threads <n>                         (default: %s)\n", join(runtimeParamsDefaults.threads, ",").c_str());
@@ -582,6 +578,7 @@ static void printUsage(int /* argc */, char ** argv) {
     printf("  -kv, --kv-cache <true|false>              (default: %s) | Note: if true: Every time the LLM model generates a new word, it utilizes the cached KV-cache\n", "false");
     printf("  -fp, --file-print <stdout|filename>       (default: %s)\n", "stdout");
     printf("  -load, --loading-time <true|false>        (default: %s)\n", "true");
+    printf("  -dyo, --dynamicOption <n>                 (default: 0) | Note: if set 8, trades higher memory usage for better decoding performance\n");
 }
 
 
@@ -660,6 +657,7 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
                 break;
             }
             auto p = splitString<int>(argv[i], splitDelim);
+            std::sort(p.begin(), p.end(), std::greater<int>());
             runtimeParams.threads.insert(runtimeParams.threads.end(), p.begin(), p.end());
         } else if (arg == "-mmp" || arg == "--mmap") {
             if (++i >= argc) {
@@ -782,6 +780,9 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
 
 static Llm* buildLLM(const std::string& config_path, int backend, int memory, int precision, int threads, int power, int dynamic_option, bool use_mmap) {
     auto llmPtr = Llm::createLLM(config_path);
+    llmPtr->set_config(R"({
+        "async":false
+    })");
     std::map<int, std::string> lever = {{0,"normal"}, {1, "high"}, {2, "low"}};
     std::map<int, std::string> backend_type = {{0, "cpu"}, {1, "metal"}, {3, "opencl"}};
     std::map<bool, std::string> mmap = {{true,"true"}, {false, "false"}};
@@ -823,6 +824,15 @@ static Llm* buildLLM(const std::string& config_path, int backend, int memory, in
         return nullptr;
     }
     setSuccess &= llmPtr->set_config("{\"tmp_path\":\"tmp\"}");
+    if (!setSuccess) {
+        MNN_ERROR("tmp_path for LLM config set error\n");
+        return nullptr;
+    }
+    setSuccess &= llmPtr->set_config("{\"prefer_decode\": false}"); // llm_bench use dynamic_option(-dyo) to control whether to use 'prefer_decode'
+    if (!setSuccess) {
+        MNN_ERROR("prefer_decode for LLM config set error\n");
+        return nullptr;
+    }
     return llmPtr;
 }
 

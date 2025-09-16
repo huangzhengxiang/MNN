@@ -90,9 +90,27 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
     }
     return true;
 }
+
+static inline std::vector<int> parseIntList(const std::string& str, char delim) {
+    std::vector<int> result;
+    std::ptrdiff_t p1 = 0, p2;
+    while (1) {
+        p2 = str.find(delim, p1);
+        if (p2 != std::string::npos) {
+            result.push_back(atoi(str.substr(p1, p2 - p1).c_str()));
+            p1 = p2 + 1;
+        } else {
+            result.push_back(atoi(str.substr(p1).c_str()));
+            break;
+        }
+    }
+    return result;
+}
 int main(int argc, char *argv[]) {
     if (argc < 3) {
-        MNN_ERROR("Usage: ./ModuleBasic.out ${test.mnn} ${Dir} [runMask] [forwardType] [runLoops] [numberThread] [precision | memory] [cacheFile]\n");
+        MNN_PRINT("=======================================================================================================================================\n");
+        MNN_ERROR("Usage: ./ModuleBasic.out ${test.mnn} ${Dir} [runMask] [forwardType] [runLoops] [numberThread] [precision | memory] [cacheFile] [cpuIds] [enableKleidiAI]\n");
+        MNN_PRINT("=======================================================================================================================================\n");
         return 0;
     }
     BackendConfig backendConfigTmp;
@@ -220,10 +238,25 @@ int main(int argc, char *argv[]) {
     if (argc > 8) {
         cacheFileName = argv[8];
     }
+    // CPU IDs
+    std::vector<int> cpuIds;
+    if (argc > 9) {
+        cpuIds = parseIntList(argv[9], ',');
+    }
+    MNN_PRINT("cpuIds: ");
+    for (auto id : cpuIds) {
+        MNN_PRINT("%d ", id);
+    }
+    bool enableKleidiAI = false;
+    if (argc > 10) {
+        enableKleidiAI = atoi(argv[10]) > 0 ? true : false;
+    }
+    MNN_PRINT("\n");
     FUNC_PRINT(precision);
     FUNC_PRINT(memory);
     FUNC_PRINT(power);
     FUNC_PRINT_ALL(cacheFileName, s);
+    FUNC_PRINT(enableKleidiAI);
     // create session
     MNN::ScheduleConfig config;
     config.type      = type;
@@ -246,6 +279,7 @@ int main(int argc, char *argv[]) {
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setCache(cacheFileName);
     rtmgr->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
+    rtmgr->setHint(MNN::Interpreter::HintMode::CPU_CORE_IDS, cpuIds.data(), cpuIds.size());
 
     if (cpuDecreaseRate > 0 && cpuDecreaseRate <= 100) {
         rtmgr->setHint(Interpreter::CPU_LITTLECORE_DECREASE_RATE, cpuDecreaseRate);
@@ -290,9 +324,26 @@ int main(int argc, char *argv[]) {
         */
         rtmgr->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 2);
     }
+
+    if (enableKleidiAI) {
+        rtmgr->setHint(Interpreter::CPU_ENABLE_KLEIDIAI, true);
+    }
+
+    // rtmgr->setHint(Interpreter::CPU_SME2_INSTRUCTIONS, false);
+
     if (runMask & 2048) {
         rtmgr->setExternalPath("tmp", Interpreter::EXTERNAL_FEATUREMAP_DIR);
     }
+    // set npu model dir, npu model and mnn model in same path
+    size_t pos = modelName.find_last_of("/\\");
+    std::string modelPath;
+    if (pos == std::string::npos) {
+        // current path
+        modelPath = "./";
+    } else {
+        modelPath = modelName.substr(0, pos);
+    }
+    rtmgr->setExternalPath(modelPath, 3);
     std::shared_ptr<Module> net;
     {
         AUTOTIME;
@@ -303,6 +354,9 @@ int main(int argc, char *argv[]) {
         }
         if (runMask & 64) {
             net.reset(Module::clone(net.get()));
+        }
+        if (net == nullptr) {
+            return 0;
         }
     }
     auto mInfo = net->getInfo();

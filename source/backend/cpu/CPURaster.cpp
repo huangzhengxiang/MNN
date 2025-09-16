@@ -20,6 +20,8 @@
 
 using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
+typedef void (*FP16ToFP32)(const int16_t* src, float* dst, size_t size);
+typedef void (*FP32ToFP16)(const float* src, int16_t* dst, size_t size);
 struct ReduceInfo {
     int reduceMask[3] = {0, 0, 0};
     int reduceNum = 0;
@@ -352,6 +354,10 @@ void CPURaster::executeFaster(const std::vector<Tensor *> &inputs, const std::ve
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
         for (int u=(int)tId; u<mFastBlit.size(); u+=threadNum) {
             auto& iter = mFastBlit[u];
+            if (iter.first->host<uint8_t>() == nullptr) {
+                // Avoid crash when has zero shape input blit
+                continue;
+            }
             auto& slice = iter.second;
             //Offset use byte
             auto srcPtr = iter.first->host<uint8_t>() + slice.src.offset * bytes;
@@ -430,7 +436,7 @@ static void _zero(const Tensor::InsideDescribe::Region& slice, int bytes, uint8_
         }
     }
 }
-static bool _reduceblit(const Tensor::InsideDescribe::Region& slice, int bytes, const uint8_t* srcPtr, uint8_t* dstPtr) {
+static bool _reduceblit(const Tensor::InsideDescribe::Region& slice, int bytes, const uint8_t* srcPtr, uint8_t* dstPtr, FP16ToFP32 funcFp16ToFp32 = nullptr, FP32ToFP16 funcFp32ToFp16 = nullptr) {
     ReduceInfo reduceInfo;
     reduceInfo.compute(slice);
     auto normalIndex = reduceInfo.normalIndex;
@@ -439,21 +445,31 @@ static bool _reduceblit(const Tensor::InsideDescribe::Region& slice, int bytes, 
         case 3:
         {
             float summer = 0.0f;
+            float fp32Buffer[1];
             for (int z=0; z<slice.size[0]; ++z) {
                 auto srcZ = srcPtr + z * slice.src.stride[0] * bytes;
                 for (int y=0; y<slice.size[1]; ++y) {
                     auto srcY = srcZ + y * slice.src.stride[1] * bytes;
-                    auto S = (float*)srcY;
                     for (int x=0; x<slice.size[2]; ++x) {
+                        auto S = (float*)srcY;
+                        if (bytes == 2) {
+                            funcFp16ToFp32((int16_t*)srcY, fp32Buffer, 1);
+                            S = fp32Buffer;
+                        }
                         summer += S[slice.src.stride[2] * x];
                     }
                 }
             }
-            ((float*)dstPtr)[0] = summer;
+            if (bytes == 4) {
+                ((float*)dstPtr)[0] = summer;
+            } else {
+                funcFp32ToFp16(&summer, (int16_t*)dstPtr, 1);
+            }
             return true;
         }
         case 2:
         {
+            float fp32Buffer[1];
             int sizeZ = slice.size[normalIndex[0]];
             int srcStrideZ = slice.src.stride[normalIndex[0]];
             int dstStrideZ = slice.dst.stride[normalIndex[0]];
@@ -469,12 +485,20 @@ static bool _reduceblit(const Tensor::InsideDescribe::Region& slice, int bytes, 
                 auto dstZ = dstPtr + z * dstStrideZ * bytes;
                 for (int y=0; y<sizeY; ++y) {
                     auto srcY = srcZ + y * srcStrideY * bytes;
-                    auto S = (float*)srcY;
                     for (int x=0; x<sizeX; ++x) {
+                        auto S = (float*)srcY;
+                        if (bytes == 2) {
+                            funcFp16ToFp32((int16_t*)srcY, fp32Buffer, 1);
+                            S = fp32Buffer;
+                        }
                         summer += S[srcStrideX * x];
                     }
                 }
-                ((float*)dstZ)[0] = summer;
+                if (bytes == 4) {
+                    ((float*)dstZ)[0] = summer;
+                } else {
+                    funcFp32ToFp16(&summer, (int16_t*)dstZ, 1);
+                }
             }
             return true;
         }
@@ -489,6 +513,7 @@ static bool _reduceblit(const Tensor::InsideDescribe::Region& slice, int bytes, 
             int sizeX = slice.size[reduceIndex[0]];
             int srcStrideX = slice.src.stride[reduceIndex[0]];
             int dstStrideX = slice.dst.stride[reduceIndex[0]];
+            std::vector<float> fp32Buffer(sizeX);
             for (int z=0; z<sizeZ; ++z) {
                 auto srcZ = srcPtr + z * srcStrideZ * bytes;
                 auto dstZ = dstPtr + z * dstStrideZ * bytes;
@@ -496,11 +521,20 @@ static bool _reduceblit(const Tensor::InsideDescribe::Region& slice, int bytes, 
                     float summer = 0.0f;
                     auto srcY = srcZ + y * srcStrideY * bytes;
                     auto dstY = dstZ + y * dstStrideY * bytes;
-                    auto S = (float*)srcY;
+                    float* S = (float*)srcY;
+                    float* D = (float*)dstY;
+                    if (bytes == 2) {
+                        funcFp16ToFp32((int16_t*)srcY, fp32Buffer.data(), sizeX);
+                        S = fp32Buffer.data();
+                    }
                     for (int x=0; x<sizeX; ++x) {
                         summer += S[srcStrideX * x];
                     }
-                    ((float*)dstY)[0] = summer;
+                    if (bytes == 2) {
+                        funcFp32ToFp16(&summer, (int16_t*)dstY, 1);
+                    } else {
+                        D[0] = summer;
+                    }
                 }
             }
             return true;
@@ -511,10 +545,10 @@ static bool _reduceblit(const Tensor::InsideDescribe::Region& slice, int bytes, 
     return false;
 }
 
-static void _blit(const Tensor::InsideDescribe::Region& slice, int bytes, const uint8_t* srcPtr, uint8_t* dstPtr, bool hasReduce) {
+static void _blit(const Tensor::InsideDescribe::Region& slice, int bytes, const uint8_t* srcPtr, uint8_t* dstPtr, bool hasReduce, FP16ToFP32 funcFp16ToFp32 = nullptr, FP32ToFP16 funcFp32ToFp16 = nullptr) {
     auto proc = _selectUnitProc(bytes, slice.src.stride[2], slice.dst.stride[2]);
     if (hasReduce) {
-        if (_reduceblit(slice, bytes, srcPtr, dstPtr)) {
+        if (_reduceblit(slice, bytes, srcPtr, dstPtr, funcFp16ToFp32, funcFp32ToFp16)) {
             return;
         }
     }
@@ -542,6 +576,9 @@ static void _blit(const Tensor::InsideDescribe::Region& slice, int bytes, const 
             for (int y=0; y<slice.size[1]; ++y) {
                 auto srcY = srcZ + y * slice.src.stride[1] * bytes;
                 auto dstY = dstZ + y * slice.dst.stride[1] * bytes;
+#ifdef DEBUG
+                ::memset(dstY, 0, slice.size[2] * bytes);
+#endif
                 ::memcpy(dstY, srcY, slice.size[2] * bytes);
             }
         }
@@ -594,7 +631,7 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
     }
     auto core = static_cast<CPUBackend*>(backend())->functions();
     auto output = outputs[0];
-    auto bytes = CPUBackend::getBytes(backend(), output);
+    size_t bytes = (size_t)(CPUBackend::getBytes(backend(), output));
     auto outputEleSize = static_cast<CPUBackend*>(backend())->getTensorSize(output);
     auto threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
     if (mSingleConvert.type > 0) {
@@ -603,10 +640,10 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
         auto sourceFormat = TensorUtils::getDescribe(realInput)->dimensionFormat;
         auto destFormat = TensorUtils::getDescribe(output)->dimensionFormat;
         auto channelC4 = UP_DIV(srcChannel, core->pack);
-        int batchStrideC4 = channelC4 * core->pack * srcArea * bytes;
-        int batchStride = srcChannel * srcArea * bytes;
-        int inputBatchStride = batchStride;
-        int outputBatchStride = batchStride;
+        auto batchStrideC4 = channelC4 * core->pack * srcArea * bytes;
+        auto batchStride = srcChannel * srcArea * bytes;
+        auto inputBatchStride = batchStride;
+        auto outputBatchStride = batchStride;
         if (MNN_DATA_FORMAT_NC4HW4 == sourceFormat) {
             if (realInput->dimensions() <= 1) {
                 ::memcpy(output->host<uint8_t>(), realInput->host<uint8_t>(), realInput->elementSize() * bytes);
@@ -660,9 +697,13 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
         for (int u=tId; u<mTempInputCopy.size(); u+=threadNum) {
             auto& iter = mTempInputCopy[u];
             auto& slice = *(iter.second);
+            if (nullptr == iter.first->host<uint8_t>()) {
+                // Avoid crash when has zero shape input blit
+                continue;
+            }
             auto srcPtr = iter.first->host<uint8_t>() + slice.src.offset * bytes;
             auto dstPtr = (uint8_t*)mOutputPtr + slice.dst.offset * bytes;
-            _blit(slice, bytes, srcPtr, dstPtr, mHasReduce);
+            _blit(slice, bytes, srcPtr, dstPtr, mHasReduce, core->MNNLowpToFp32, core->MNNFp32ToLowp);
         }
     }
     MNN_CONCURRENCY_END();
@@ -1080,11 +1121,11 @@ public:
                             break;
                         case BinaryOpOperation_MUL:
                             for (int z=0; z<sizeZ; ++z) {
-                                auto srcZ = srcF + z * dstStride[0];
-                                auto dstZ = dstF + z * outputStride[0];
+                                auto srcZ = srcF + z * outputStride[0];
+                                auto dstZ = dstF + z * dstStride[0];
                                 for (int y=0; y<sizeY; ++y) {
-                                    auto srcY = srcZ + z * dstStride[1];
-                                    auto dstY = dstZ + z * outputStride[1];
+                                    auto srcY = srcZ + y * outputStride[1];
+                                    auto dstY = dstZ + y * dstStride[1];
                                     for (int x=0; x<sizeX; ++x) {
                                         auto dstOffset = x * dstStride[2];
                                         dstY[dstOffset] = dstY[dstOffset] * srcY[x];
@@ -1094,16 +1135,14 @@ public:
                             break;
                         case BinaryOpOperation_SUB:
                             for (int z=0; z<sizeZ; ++z) {
-                                auto srcZ = srcF + z * dstStride[0];
-                                auto dstZ = dstF + z * outputStride[0];
+                                auto srcZ = srcF + z * outputStride[0];
+                                auto dstZ = dstF + z * dstStride[0];
                                 for (int y=0; y<sizeY; ++y) {
-                                    auto srcY = srcZ + z * dstStride[1];
-                                    auto dstY = dstZ + z * outputStride[1];
+                                    auto srcY = srcZ + y * outputStride[1];
+                                    auto dstY = dstZ + y * dstStride[1];
                                     for (int x=0; x<sizeX; ++x) {
                                         auto dstOffset = x * dstStride[2];
-                                        auto D = dstY[dstOffset];
-                                        auto S = srcY[x];
-                                        dstY[dstOffset] = D - S;
+                                        dstY[dstOffset] = dstY[dstOffset] - srcY[x];
                                     }
                                 }
                             }

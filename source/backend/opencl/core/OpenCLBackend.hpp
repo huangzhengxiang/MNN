@@ -62,8 +62,6 @@ public:
     void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, int precision, int backend_memtype, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
     void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, int precision, int backend_memtype, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
     void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor, int precision, int backend_memtype) const;
-    static void setGlobalCLRuntime(std::shared_ptr<OpenCLRuntime> runtime);
-    static std::shared_ptr<OpenCLRuntime> getGlobalCLRuntime();
 
 private:
     Backend::Info mInfo;
@@ -76,8 +74,6 @@ private:
 
     friend class OpenCLBackend;
     TuneInfo* mTunedInfo;
-    static std::weak_ptr<OpenCLRuntime> globalRuntime;
-    static std::mutex globalRuntimeLock;
 };
 
 
@@ -136,9 +132,6 @@ public:
     bool isUseRecordQueue(){
         return mUseRecordQueue;
     }
-    bool isDevideOpRecord(){
-        return mDevideOpRecord;
-    }
     CLTuneLevel getCLTuneLevel() {
         return mTuneLevel;
     }
@@ -185,9 +178,10 @@ private:
     bool mIsCreateError{false};
     mutable std::vector<RecordInfo> mRecordings;
     bool mUseRecordQueue = false;
-    bool mDevideOpRecord = false;
+    bool mDivideOpRecord = false;
     uint32_t mRecordNums = 0;
     uint32_t mUseRecordableQueueSize;
+    friend class setRecordClose;
 private:
 
     void* svmPtr = nullptr;
@@ -198,6 +192,25 @@ private:
     GpuMemObject mMemType = AUTO;
     CLTuneLevel mTuneLevel = Wide;
 
+};
+
+class setRecordClose{
+public:
+    setRecordClose(OpenCLBackend *bn){
+        backend = bn;
+        if(backend->mUseRecordQueue){
+            backend->mUseRecordQueue = false;
+            needRecover = true;
+        }
+    }
+    ~setRecordClose(){
+        if(needRecover){
+            backend->mUseRecordQueue = true;
+        }
+    }
+private:
+    bool needRecover = false;
+    OpenCLBackend* backend;
 };
 
 template <class T>

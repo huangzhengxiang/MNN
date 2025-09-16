@@ -209,6 +209,29 @@ class ModelMapper:
         }
         self.regist('qwen3_moe', qwen3_moe_map)
 
+    def regist_mimo(self):
+        mimo_model = copy.deepcopy(self.defualt_model)
+        mimo_model['mtp'] = 'model.mtp_layers'
+        mimo_map = {
+            'config': self.default_config,
+            'model': mimo_model,
+            'decoder': self.default_decoder,
+            'attention': self.default_attention
+        }
+        self.regist('mimo', mimo_map)
+
+    def regist_poi_qwen2_mtp(self):
+        poi_qwen2_mtp_model = copy.deepcopy(self.defualt_model)
+        poi_qwen2_mtp_model['mtp1'] = 'MTP1'
+        poi_qwen2_mtp_model['mtp2'] = 'MTP2'
+        poi_qwen2_mtp_map = {
+            'config': self.default_config,
+            'model': poi_qwen2_mtp_model,
+            'decoder': self.default_decoder,
+            'attention': self.default_attention
+        }
+        self.regist('poi_qwen2_mtp', poi_qwen2_mtp_map)
+
     def regist_glm(self):
         glm_map = {
             'config': {
@@ -423,6 +446,8 @@ class ModelMapper:
                 'eos_token_id': 'eos_token_id',
                 'max_position_embeddings': 'max_position_embeddings',
                 'pad_token_id': 'pad_token_id',
+                'layer_types': 'layer_types',
+                'sliding_window': 'sliding_window'
             },
             'model': {
                 'lm_': 'lm_head',
@@ -527,7 +552,7 @@ class ModelMapper:
         if TRANSFORMERS_VERSION <= '4.52.1':
             return
         qwen2vl_model = {
-            'lm_': 'model.lm_head',
+            'lm_': 'lm_head',
             'embed_': 'model.language_model.embed_tokens',
             'blocks_': 'model.language_model.layers',
             'final_layernorm_': 'model.language_model.norm',
@@ -542,6 +567,85 @@ class ModelMapper:
         self.regist('qwen2_vl', qwen2vl_map)
         self.regist('qwen2_5_vl', qwen2vl_map)
 
+    def regist_hunyuan_v1_dense(self):
+        hunyuan_attention = {
+            'q_proj': 'q_proj',
+            'k_proj': 'k_proj',
+            'v_proj': 'v_proj',
+            'o_proj': 'o_proj',
+            'q_norm': 'query_layernorm',
+            'k_norm': 'key_layernorm'
+        }
+        hunyuan_map = {
+            'config': self.default_config,
+            'model': self.defualt_model,
+            'decoder': self.default_decoder,
+            'attention': hunyuan_attention
+        }
+        self.regist('hunyuan_v1_dense', hunyuan_map)
+
+    def regist_gpt_oss(self):
+        gpt_oss_config = {
+            'hidden_size': 'hidden_size',
+            'head_dim': 'head_dim',
+            'num_attention_heads': 'num_attention_heads',
+            'num_hidden_layers': 'num_hidden_layers',
+            'num_key_value_heads': 'num_key_value_heads',
+            'rope_theta': 'rope_theta',
+            'rope_scaling': 'rope_scaling',
+            'max_position_embeddings': 'max_position_embeddings',
+            'sliding_window': 'sliding_window',
+            'layer_types': 'layer_types'
+        }
+        gpt_oss_attention = copy.deepcopy(self.default_attention)
+        gpt_oss_attention['sinks'] = 'sinks'
+        gpt_oss_mlp = {
+            'num_experts': 'router.num_experts',
+            'top_k': 'router.top_k',
+            'router': 'router',
+            'experts': 'experts'
+        }
+        gpt_osss_map = {
+            'config': gpt_oss_config,
+            'model': self.defualt_model,
+            'decoder': self.default_decoder,
+            'attention': gpt_oss_attention,
+            'mlp': gpt_oss_mlp
+        }
+        self.regist('gpt_oss', gpt_osss_map)
+
+    def regist_minicpm(self):
+        minicpm_config = copy.deepcopy(self.default_config)
+        minicpm_config['scale_emb'] = 'scale_emb'
+        minicpm_decoder = copy.deepcopy(self.default_decoder)
+        minicpm_decoder['scale_depth'] = 'scale_depth'
+        minicpm_map = {
+            'config': minicpm_config,
+            'model': self.defualt_model,
+            'decoder': minicpm_decoder,
+            'attention': self.default_attention
+        }
+        self.regist('minicpm', minicpm_map)
+
+    def regist_minicpmv(self):
+        minicpmv_config = copy.deepcopy(self.default_config)
+        minicpmv_config['scale_emb'] = 'scale_emb'
+        minicpmv_model = {
+            'lm_': 'llm.lm_head',
+            'embed_': 'llm.model.embed_tokens',
+            'blocks_': 'llm.model.layers',
+            'final_layernorm_': 'llm.model.norm',
+            'visual': 'vpm',
+            'resampler': 'resampler'
+        }
+        minicpmv_map = {
+            'config': minicpmv_config,
+            'model': minicpmv_model,
+            'decoder': self.default_decoder,
+            'attention': self.default_attention
+        }
+        self.regist('minicpmv', minicpmv_map)
+
     def defualt_map(self):
         # default map is `LlamaForCausalLM`
         self.config_key = 'config'
@@ -555,7 +659,8 @@ class ModelMapper:
             'num_hidden_layers': 'num_hidden_layers',
             'num_key_value_heads': 'num_key_value_heads',
             'rope_theta': 'rope_theta',
-            'rope_scaling': 'rope_scaling'
+            'rope_scaling': 'rope_scaling',
+            'max_position_embeddings': 'max_position_embeddings'
         }
         self.defualt_model = {
             'lm_': 'lm_head',

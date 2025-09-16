@@ -8,13 +8,20 @@ import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.FileUtils
-import com.alibaba.mnnllm.android.utils.ModelPreferences
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.io.File
 import com.google.gson.annotations.SerializedName
+
+data class JinjaContext(
+    @SerializedName("enable_thinking") var enableThinking: Boolean = false
+)
+
+data class Jinja(
+    @SerializedName("context") var context: JinjaContext? = null
+)
 
 data class ModelConfig(
     @SerializedName("llm_model") var llmModel: String?,
@@ -38,7 +45,8 @@ data class ModelConfig(
     @SerializedName("ngram_factor")var nGramFactor:Float?,
     @SerializedName("max_new_tokens")var maxNewTokens:Int?,
     @SerializedName("assistant_prompt_template")var assistantPromptTemplate:String?,
-    @SerializedName("penalty_sampler")var penaltySampler:String?
+    @SerializedName("penalty_sampler")var penaltySampler:String?,
+    @SerializedName("jinja") var jinja: Jinja?
     ) {
     fun deepCopy(): ModelConfig {
         return ModelConfig(
@@ -63,7 +71,10 @@ data class ModelConfig(
             maxNewTokens = this.maxNewTokens,
             assistantPromptTemplate = this.assistantPromptTemplate,
             penaltySampler = this.penaltySampler,
-            useMmap =  this.useMmap
+            useMmap =  this.useMmap,
+            jinja = this.jinja?.let { 
+                Jinja(context = JinjaContext(enableThinking = it.context?.enableThinking == true))
+            }
         )
     }
 
@@ -97,8 +108,8 @@ data class ModelConfig(
             }
         }
 
-        fun loadConfig(modelId: String): ModelConfig {
-            return loadMergedConfig(getDefaultConfigFile(modelId)!!, getExtraConfigFile(modelId))!!
+        fun loadConfig(modelId: String): ModelConfig? {
+            return loadMergedConfig(getDefaultConfigFile(modelId)!!, getExtraConfigFile(modelId))
         }
 
         fun loadMergedConfig(originalFilePath: String, overrideFilePath: String): ModelConfig? {
@@ -119,6 +130,14 @@ data class ModelConfig(
         }
 
         fun getDefaultConfigFile(modelId:String):String? {
+            if (modelId.startsWith("local/")) {
+                val localPath = modelId.removePrefix("local/")
+                val configFilePath = File(localPath, "config.json")
+                if (configFilePath.exists()) {
+                    return configFilePath.absolutePath
+                }
+                return null
+            }
             val configFileName = "config.json"
             val destModelDir = ModelDownloadManager.getInstance(ApplicationProvider.get())
                 .getDownloadedFile(modelId)?.absolutePath
@@ -138,7 +157,10 @@ data class ModelConfig(
         }
 
         fun toJson(): String {
-            return Gson().toJson(this)
+            return GsonBuilder()
+                .disableHtmlEscaping()
+                .create()
+                .toJson(this)
         }
 
         fun saveConfig(filePath: String, config: ModelConfig): Boolean {
@@ -146,7 +168,10 @@ data class ModelConfig(
                 Log.d(TAG, "file is : $filePath")
                 val file = File(filePath)
                 FileUtils.ensureParentDirectoriesExist(file)
-                val gson = GsonBuilder().setPrettyPrinting().create()
+                val gson = GsonBuilder()
+                    .setPrettyPrinting()
+                    .disableHtmlEscaping()
+                    .create()
                 val jsonString = gson.toJson(config)
                 file.writeText(jsonString)
                 true
@@ -158,6 +183,10 @@ data class ModelConfig(
 
         fun getExtraConfigFile(modelId: String):String {
             return getModelConfigDir(modelId) + "/custom_config.json"
+        }
+
+        fun getMarketConfigFile(modelId: String):String {
+            return getModelConfigDir(modelId) + "/market_config.json"
         }
 
         fun getModelConfigDir(modelId: String): String {
@@ -177,20 +206,21 @@ data class ModelConfig(
             memory = "",
             systemPrompt = "You are a helpful assistant.",
             samplerType = "",
-            mixedSamplers = mutableListOf(),
-            temperature = 0.0f,
-            topP = 0.9f,
-            topK = 0,
-            minP = 0.0f,
+            mixedSamplers = mutableListOf("topK", "topP", "minP", "temperature"),
+            temperature = 0.6f,
+            topP = 0.95f,
+            topK = 20,
+            minP = 0.05f,
             tfsZ = 1.0f,
-            typical = 1.0f,
+            typical = 0.95f,
             penalty = 1.02f,
             nGram = 8,
             nGramFactor = 1.02f,
             maxNewTokens = 2048,
             assistantPromptTemplate = "",
             penaltySampler = "greedy",
-            useMmap = false
+            useMmap = false,
+            jinja = null
         )
 
     }

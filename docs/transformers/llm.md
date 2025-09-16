@@ -38,7 +38,7 @@ python llmexport.py \
 1. `config.json`: 模型运行时的配置，可手动修改；
 2. `embeddings_bf16.bin`: 模型的embedding权重二进制文件，推理时使用；
 3. `llm.mnn`: 模型的mnn文件，推理时使用；
-4. `llm.mnn.json`: mnn模型对应的json文件，apply_lora或者gptq量化权重时使用；
+4. `llm.mnn.json`: mnn模型对应的json文件，`apply_lora`或gptq量化权重时使用；
 5. `llm.mnn.weight`: 模型的mnn权重，推理时使用；
 6. `llm.onnx`: 模型的onnx文件，不包含权重，推理时不使用；
 7. `llm_config.json`: 模型的配置信息，推理时使用；
@@ -73,14 +73,17 @@ python llmexport.py \
 - 使用`--lm_quant_bit`来制定lm_head层权重的量化bit数，不指定则使用`--quant_bit`的量化bit数
 
 ### 参数
+执行 `python llmexport.py -h` 可查看参数：
 ```
-usage: llmexport.py [-h] --path PATH [--type TYPE] [--lora_path LORA_PATH] [--dst_path DST_PATH] [--test TEST] [--export EXPORT]
-                    [--quant_bit QUANT_BIT] [--quant_block QUANT_BLOCK] [--lm_quant_bit LM_QUANT_BIT]
-                    [--mnnconvert MNNCONVERT]
+usage: llmexport.py [-h] --path PATH [--type TYPE] [--tokenizer_path TOKENIZER_PATH] [--lora_path LORA_PATH]
+                    [--gptq_path GPTQ_PATH] [--dst_path DST_PATH] [--verbose] [--test TEST] [--export EXPORT]
+                    [--onnx_slim] [--quant_bit QUANT_BIT] [--quant_block QUANT_BLOCK]
+                    [--lm_quant_bit LM_QUANT_BIT] [--mnnconvert MNNCONVERT] [--ppl] [--awq] [--sym] [--seperate_embed]
+                    [--lora_split]
 
 llm_exporter
 
-options:
+optional arguments:
   -h, --help            show this help message and exit
   --path PATH           path(`str` or `os.PathLike`):
                         Can be either:
@@ -88,20 +91,37 @@ options:
                         	- A path to a *directory* clone from repo like `../chatglm-6b`.
   --type TYPE           type(`str`, *optional*):
                         	The pretrain llm model type.
+  --tokenizer_path TOKENIZER_PATH
+                        tokenizer path, defaut is `None` mean using `--path` value.
   --lora_path LORA_PATH
                         lora path, defaut is `None` mean not apply lora.
+  --gptq_path GPTQ_PATH
+                        gptq path, defaut is `None` mean not apply gptq.
   --dst_path DST_PATH   export onnx/mnn model to path, defaut is `./model`.
+  --verbose             Whether or not to print verbose.
   --test TEST           test model inference with query `TEST`.
   --export EXPORT       export model to an onnx/mnn model.
+  --onnx_slim           Whether or not to use onnx-slim.
   --quant_bit QUANT_BIT
                         mnn quant bit, 4 or 8, default is 4.
   --quant_block QUANT_BLOCK
-                        mnn quant block, default is 0 mean channle-wise.
+                        mnn quant block, 0 mean channle-wise, default is 128.
+  --visual_quant_bit VISUAL_QUANT_BIT
+                        mnn visual model quant bit, 4 or 8, default is setting in utils/vision.py by different vit model.
+  --visual_quant_block VISUAL_QUANT_BLOCK
+                        mnn visual model quant block, 0 mean channle-wise, default is setting in utils/vision.py by different vit model.
   --lm_quant_bit LM_QUANT_BIT
                         mnn lm_head quant bit, 4 or 8, default is `quant_bit`.
   --mnnconvert MNNCONVERT
                         local mnnconvert path, if invalid, using pymnn.
+  --ppl                 Whether or not to get all logits of input tokens.
+  --awq                 Whether or not to use awq quant.
+  --sym                 Whether or not to using symmetric quant (without zeropoint), defualt is False.
+  --visual_sym          Whether or not to using symmetric quant (without zeropoint) for visual model, defualt is False.
+  --seperate_embed      For lm and embed shared model, whether or not to sepearte embed to avoid quant, defualt is False, if True, embed weight will be seperate to embeddingbf16.bin.
+  --lora_split          Whether or not export lora split, defualt is False.
 ```
+
 
 ### 权重读取
 llmexport.py 同时支持 LLM 的验证功能，有较多的依赖。在没有相应环境的情况下，MNN-LLM也提供由 safetensors 或 gguf 文件读取权重的工具，可以降低内存需求，提高转换速度。使用方法如下：
@@ -152,6 +172,7 @@ python3 gguf2mnn.py --gguf ~/third/llama.cpp/build/ggml-model-Q4_K.gguf --mnn_di
 ```
 -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true
 ```
+
 - 需要开启音频功能时，增加相关编译宏
 ```
 -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true
@@ -180,6 +201,12 @@ make -j16
 cd project/android
 mkdir build_64
 ../build_64.sh -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_OPENCL=true -DMNN_USE_LOGCAT=true
+```
+高通设备部分视觉模型支持NPU功能，可增加`MNN_QNN` 和`MNN_WITH_PLUGIN`的宏启用QNN功能。
+```
+cd project/android
+mkdir build_64
+../build_64.sh -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_OPENCL=true -DMNN_QNN=true -DMNN_WITH_PLUGIN=true -DMNN_USE_LOGCAT=true
 ```
 
 #### iOS: 参考 transformers/llm/engine/ios/README.md
@@ -265,6 +292,12 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - thread_num: CPU推理使用硬件线程数，默认为：`4`; OpenCL推理时使用`68`(不是传统意义的线程数，代表的是opencl buffer存储和tuning wide模式)
   - precision: 推理使用精度策略，默认为：`"low"`，尽量使用`fp16`
   - memory: 推理使用内存策略，默认为：`"low"`，开启运行时量化
+- 与CPU动态量化相关的配置
+  - dynamic_option: 推理时是否对feature map分blocksize/group进行量化。可选为：`0, 1, 2`，默认是`0`，含义如下：
+    - 0: feature map数据使用per channel量化
+    - 1: feature map数据使用per tensor量化
+    - 2: feature map数据用per block量化，blocksize等于权重量化时的blocksize，如果权重量化时没有使用per block量化，即使设置2，也不会对feature map做per block量化
+  - prefer_decode: 是否希望有更快的解码（Decode）速度。可选：`true, false`，默认`false`。注意：当prompt长度小于300时，`true`条件下的Prefill速度会显著慢于`false`条件下时的性能。当prompt长度高于300时，`true`条件下的Prefill速度和`false`条件基本持平，Decode速度大约会快20%. 如果你希望在各种情况下Prefill速度和Decode速度更加均衡，建议设置该选项为`false`.
 - Sampler配置
   - sampler_type: 使用的sampler种类，目前支持`greedy`, `temperature`, `topK`, `topP`, `minP`, `tfs`, `typical`, `penalty`8种基本sampler，外加`mixed`(混合sampler，当选择`mixed`时，依次执行mixed_samplers中的sampler)。默认为`greedy`，但是建议使用`mixed`、`temperature`来增加输出多样性，或使用`penalty`来降低重复。
   - mixed_samplers: 当`sampler_type`为`mixed`时有效，默认为`["topK", "tfs", "typical", "topP", "min_p", "temperature"]`, 模型计算得到的logits会依次经过这些sampler采样。
@@ -450,30 +483,12 @@ python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --lora_path /path/to/l
       "llm_weight": "base.mnn.weight",
   }
   ```
-  - 运行时选择并切换lora模型
+  - 运行时创建lora模型
   ```cpp
   // 创建并加载base模型
   std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
   llm->load();
-  // 使用同一个对象，在多个lora模型之间选择性使用，不可以并发使用
-  {
-      // 在基础模型的基础上添加`lora_1`模型，模型的索引为`lora_1_idx`
-      size_t lora_1_idx = llm->apply_lora("lora_1.mnn");
-      llm->response("Hello lora1"); // 使用`lora_1`模型推理
-      // 添加`lora_2`模型，并使用
-      size_t lora_2_idx = llm->apply_lora("lora_2.mnn");
-      llm->response("Hello lora2"); // 使用`lora_2`模型推理
-      // 通过索引选择`lora_1`作为llm对象当前使用的模型
-      llm->select_module(lora_1_idx);
-      llm->response("Hello lora1"); // 使用`lora_1`模型推理
-      // 释放加载的lora模型
-      llm->release_module(lora_1_idx);
-      llm->release_module(lora_2_idx);
-      // 选择使用基础模型
-      llm->select_module(0);
-      llm->response("Hello base"); // 使用`base`模型推理
-  }
-  // 使用多个对象，可以并发的加载使用多个lora模型
+  // 创建lora模型，支持多个lora模型并存，支持并发
   {
       std::mutex creat_mutex;
       auto chat = [&](const std::string& lora_name) {

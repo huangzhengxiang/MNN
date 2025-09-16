@@ -107,7 +107,8 @@ class ModelFileDownloader {
                         )
                     )
                 }
-                if (response.code == 302 || response.code == 303) {
+                // Handle all redirect status codes (301, 302, 303, 307, 308)
+                if (response.code in 301..308) {
                     theUrlToDownload = response.header("Location")!!
                 }
             }

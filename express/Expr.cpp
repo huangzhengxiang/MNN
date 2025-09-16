@@ -58,6 +58,16 @@ void Variable::Info::syncSize() {
         }
     }
 }
+// Only valid for Input / Const / Trainable
+void VARP::setOrder(Dimensionformat format) {
+    if (nullptr != mContent->expr().first->get()) {
+        return;
+    }
+    auto index = mContent->expr().second;
+    auto inside = mContent->expr().first->inside();
+    inside->mOutputInfos[index].order = format;
+    TensorUtils::getDescribe(inside->mOutputTensors[index])->dimensionFormat = (MNN_DATA_FORMAT)Utils::convertFormat(format);
+}
 
 bool VARP::fix(VARP::InputType type) const {
     if (nullptr == mContent->expr().first->get()) {
@@ -1328,6 +1338,18 @@ std::vector<EXPRP> Variable::getExecuteOrder(const std::vector<VARP>& outputs) {
     for (auto output : outputs) {
         if (nullptr == output) {
             continue;
+        }
+        if (nullptr == output->expr().first) {
+            continue;
+        }
+        auto op = output->expr().first->get();
+        bool isConst = ((op && op->type() == OpType_Const) || (!op && output->expr().first->inputType() == VARP::CONSTANT));
+        if (isConst) {
+            if (!output->expr().first->visited()){
+                output->expr().first->setVisited(true);
+                sequence.emplace_back(output->expr().first);
+                continue;
+            }
         }
         workStack.push(output->expr().first);
     }

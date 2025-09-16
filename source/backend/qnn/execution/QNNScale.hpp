@@ -16,11 +16,16 @@ namespace QNN {
 
 class QNNScale : public QNNCommonExecution {
 public:
-    QNNScale(Backend *backend, const Op *op) : QNNCommonExecution(backend, op) {}
+    QNNScale(Backend *backend, const Op *op);
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 private:
     void mulWeight(Tensor * input);
     void addBias(Tensor * output);
+private:
+    std::vector<float> mWeightData;
+    std::vector<float> mBiasData;
+    bool mNeedQuantDequant = false;
 };
 
 } // end namespace QNN

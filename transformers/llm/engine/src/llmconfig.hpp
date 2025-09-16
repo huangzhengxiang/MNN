@@ -307,6 +307,10 @@ public:
         return base_dir_ + config_.value("visual_model", "visual.mnn");
     }
 
+    std::string npu_model_dir() const {
+        return base_dir_ + config_.value("npu_model_dir", "");
+    }
+
     std::string audio_model() const {
         return base_dir_ + config_.value("audio_model", "audio.mnn");
     }
@@ -353,10 +357,6 @@ public:
     std::string memory(bool mllm = false) const {
         if (mllm) return mllm_config_.value("memory", "low");
         return config_.value("memory", "low");
-    }
-
-    int quant_qkv() const {
-        return config_.value("quant_qkv", 0);
     }
 
     int kvcache_limit() const {
@@ -468,6 +468,15 @@ public:
     std::string attention_mask() const {
         return config_.value("attention_mask", "int");
     }
+
+    std::string attention_type() const {
+        return config_.value("attention_type", "full");
+    }
+
+    int sliding_window() const {
+        return config_.value("sliding_window", 0);
+    }
+
     bool attention_fused() const {
         return config_.value("attention_fused", true);
     }
@@ -548,9 +557,9 @@ public:
         return config_.value("penalty_sampler", "greedy");
     }
     // sampler config end >
-    
+
     // < speculative decoding config start
-    
+
     /**
      speculative decoding algrithm.
      optional: "lookahead"、 ”mtp“、 "draftmodel"
@@ -558,7 +567,7 @@ public:
     std::string speculative_type() const {
         return config_.value("speculative_type", "");
     }
-    
+
     // speculative draft length
     int draft_predict_length() const {
         return config_.value("draft_predict_length", 4);
@@ -610,7 +619,9 @@ public:
     std::string draft_model() const {
         return base_dir_ + config_.value("draft_model", "");
     }
-    
+    std::string mtp_model() const {
+        return base_dir_ + config_.value("mtp_model", "mtp.mnn");
+    }
     // speculative decoding config end >
 };
 } // Transformer
